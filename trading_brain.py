@@ -106,6 +106,8 @@ class TradingBrain:
         2. Order book supports the direction
         3. AI vision analysis confirms (if available)
         4. Quick pattern detection doesn't contradict
+        5. ENHANCED: Confidence must be >= 60 for approval
+        6. ENHANCED: AI stop-loss validated against ATR limits
         """
         current_price = market_data['price']
         signal_type = signal['type']
@@ -161,11 +163,19 @@ class TradingBrain:
         if vision_analysis:
             analysis_text = vision_analysis['analysis']
             
-            # Parse AI response
+            # Parse AI response with enhanced detection
             if '✅' in analysis_text:
                 ai_recommendation = 'APPROVE'
                 confidence += 15
                 reasons.append("AI Vision confirms entry")
+                
+                # ENHANCEMENT: Check for "강력 추천" or "Strong Buy" keywords
+                strong_keywords = ['강력 추천', '강력추천', 'Strong Buy', 'STRONG BUY', 
+                                  '확실', '매우 좋', '최적', 'Excellent']
+                if any(keyword in analysis_text for keyword in strong_keywords):
+                    confidence += 10
+                    reasons.append("AI gives STRONG recommendation")
+                    
             elif '❌' in analysis_text:
                 ai_recommendation = 'REJECT'
                 confidence -= 30
@@ -178,7 +188,7 @@ class TradingBrain:
                 ai_stop_loss = ai_levels.get('stop_loss')
                 ai_take_profit = ai_levels.get('take_profit')
         
-        # Calculate stop loss and take profit
+        # Calculate stop loss and take profit (ATR-based baseline)
         position_sizing = self.technical_indicators.calculate_stop_loss_take_profit(
             current_price,
             signal_type,
@@ -186,24 +196,53 @@ class TradingBrain:
             self.risk_reward_ratio
         )
         
-        # Use AI levels if available and reasonable
+        # CRITICAL ENHANCEMENT: Validate AI levels against ATR limits
         if ai_stop_loss and ai_take_profit:
-            # Validate AI levels
-            if signal_type == 'LONG':
-                if ai_stop_loss < current_price < ai_take_profit:
+            # Calculate ATR-based maximum allowed stop loss (3x ATR = very generous)
+            max_stop_distance = indicators['atr']['value'] * 3.0
+            
+            # Validate AI stop loss
+            ai_stop_distance = abs(current_price - ai_stop_loss)
+            atr_stop_distance = abs(current_price - position_sizing['stop_loss'])
+            
+            # Check if AI stop loss is within reasonable bounds
+            if ai_stop_distance <= max_stop_distance:
+                # Additional validation: direction and order
+                is_valid = False
+                
+                if signal_type == 'LONG':
+                    # For LONG: stop < entry < target
+                    if ai_stop_loss < current_price < ai_take_profit:
+                        # Check if risk:reward ratio is acceptable (min 1:1.5)
+                        ai_risk = current_price - ai_stop_loss
+                        ai_reward = ai_take_profit - current_price
+                        if ai_risk > 0 and (ai_reward / ai_risk) >= 1.5:
+                            is_valid = True
+                else:  # SHORT
+                    # For SHORT: target < entry < stop
+                    if ai_take_profit < current_price < ai_stop_loss:
+                        # Check if risk:reward ratio is acceptable
+                        ai_risk = ai_stop_loss - current_price
+                        ai_reward = current_price - ai_take_profit
+                        if ai_risk > 0 and (ai_reward / ai_risk) >= 1.5:
+                            is_valid = True
+                
+                if is_valid:
                     position_sizing['stop_loss'] = ai_stop_loss
                     position_sizing['take_profit'] = ai_take_profit
-                    reasons.append("Using AI-recommended levels")
-            else:  # SHORT
-                if ai_stop_loss > current_price > ai_take_profit:
-                    position_sizing['stop_loss'] = ai_stop_loss
-                    position_sizing['take_profit'] = ai_take_profit
-                    reasons.append("Using AI-recommended levels")
+                    reasons.append(f"Using AI levels (validated, stop distance: {ai_stop_distance:.2f})")
+                else:
+                    risks.append(f"AI levels rejected: Invalid direction or poor risk:reward")
+                    print(f"⚠️ AI levels rejected: stop={ai_stop_loss}, entry={current_price}, target={ai_take_profit}")
+            else:
+                # AI suggested stop loss is TOO WIDE (dangerous!)
+                risks.append(f"AI stop loss too wide ({ai_stop_distance:.2f} > {max_stop_distance:.2f}), using ATR-based")
+                print(f"⚠️ AI hallucination detected! Suggested stop: {ai_stop_distance:.2f}, Max allowed: {max_stop_distance:.2f}")
         
-        # Final approval check
-        if confidence < 40:
+        # CRITICAL: Final approval check with RAISED threshold
+        if confidence < 60:
             approved = False
-            risks.append("Confidence too low after all checks")
+            risks.append(f"Confidence too low ({confidence:.1f}% < 60% threshold)")
         
         # Compile final decision
         decision = {
@@ -223,6 +262,7 @@ class TradingBrain:
                 'bb_position': indicators['bb']['position'],
                 'ma_trend': indicators['ma']['trend'],
                 'macd_histogram': indicators['macd']['histogram'],
+                'atr': indicators['atr']['value'],
             },
             'market_data': market_data,
             'ai_analysis': vision_analysis['analysis'] if vision_analysis else None,
@@ -234,29 +274,68 @@ class TradingBrain:
     
     def _extract_price_levels(self, ai_text):
         """
-        Extract stop loss and take profit prices from AI analysis
+        ENHANCED: Extract stop loss and take profit prices from AI analysis
+        Supports both Korean and English, with robust regex patterns
         Returns dict with 'stop_loss' and 'take_profit' or None
         """
         try:
             import re
             
-            # Look for patterns like "손절가: 91500" or "목표가: 93000"
-            stop_loss_match = re.search(r'손절가:?\s*[\$]?([0-9,]+(?:\.[0-9]+)?)', ai_text)
-            take_profit_match = re.search(r'목표가:?\s*[\$]?([0-9,]+(?:\.[0-9]+)?)', ai_text)
+            # ENHANCED: Support both Korean and English patterns
+            # Korean patterns: 손절가, 손절, 스탑로스
+            # English patterns: Stop Loss, Stop, SL
+            stop_patterns = [
+                r'손절가\s*:?\s*[\$]?\s*([0-9,]+(?:\.[0-9]+)?)',
+                r'손절\s*:?\s*[\$]?\s*([0-9,]+(?:\.[0-9]+)?)',
+                r'스탑로스\s*:?\s*[\$]?\s*([0-9,]+(?:\.[0-9]+)?)',
+                r'Stop\s*Loss\s*:?\s*[\$]?\s*([0-9,]+(?:\.[0-9]+)?)',
+                r'Stop\s*:?\s*[\$]?\s*([0-9,]+(?:\.[0-9]+)?)',
+                r'SL\s*:?\s*[\$]?\s*([0-9,]+(?:\.[0-9]+)?)',
+            ]
             
-            if stop_loss_match and take_profit_match:
-                stop_loss = float(stop_loss_match.group(1).replace(',', ''))
-                take_profit = float(take_profit_match.group(1).replace(',', ''))
-                
+            # Korean patterns: 목표가, 익절가, 타겟
+            # English patterns: Take Profit, Target, TP
+            profit_patterns = [
+                r'목표가\s*:?\s*[\$]?\s*([0-9,]+(?:\.[0-9]+)?)',
+                r'익절가\s*:?\s*[\$]?\s*([0-9,]+(?:\.[0-9]+)?)',
+                r'타겟\s*:?\s*[\$]?\s*([0-9,]+(?:\.[0-9]+)?)',
+                r'Take\s*Profit\s*:?\s*[\$]?\s*([0-9,]+(?:\.[0-9]+)?)',
+                r'Target\s*:?\s*[\$]?\s*([0-9,]+(?:\.[0-9]+)?)',
+                r'TP\s*:?\s*[\$]?\s*([0-9,]+(?:\.[0-9]+)?)',
+            ]
+            
+            # Try all stop loss patterns
+            stop_loss = None
+            for pattern in stop_patterns:
+                match = re.search(pattern, ai_text, re.IGNORECASE)
+                if match:
+                    stop_loss = float(match.group(1).replace(',', ''))
+                    break
+            
+            # Try all take profit patterns
+            take_profit = None
+            for pattern in profit_patterns:
+                match = re.search(pattern, ai_text, re.IGNORECASE)
+                if match:
+                    take_profit = float(match.group(1).replace(',', ''))
+                    break
+            
+            # Both must be found
+            if stop_loss and take_profit:
+                print(f"✅ AI levels extracted: Stop={stop_loss}, Target={take_profit}")
                 return {
                     'stop_loss': stop_loss,
                     'take_profit': take_profit
                 }
-            
-            return None
+            else:
+                if not stop_loss:
+                    print(f"⚠️ Stop loss not found in AI response")
+                if not take_profit:
+                    print(f"⚠️ Take profit not found in AI response")
+                return None
             
         except Exception as e:
-            print(f"⚠️ Error extracting price levels: {e}")
+            print(f"❌ Error extracting price levels: {e}")
             return None
     
     def format_decision_summary(self, decision):
