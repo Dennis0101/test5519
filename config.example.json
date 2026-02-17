@@ -1,0 +1,38 @@
+{
+  "binance": {
+    "api_key": "YOUR_BINANCE_API_KEY_HERE",
+    "api_secret": "YOUR_BINANCE_API_SECRET_HERE",
+    "testnet": true
+  },
+  "openai": {
+    "api_key": "YOUR_OPENAI_API_KEY_HERE",
+    "model": "gpt-4o-mini"
+  },
+  "trading": {
+    "symbol": "BTC/USDT",
+    "timeframe": "1m",
+    "update_interval": 0.1,
+    "risk_reward_ratio": 2.0
+  },
+  "indicators": {
+    "rsi_period": 14,
+    "rsi_oversold": 30,
+    "rsi_overbought": 70,
+    "bb_period": 20,
+    "bb_std": 2,
+    "ma_fast": 9,
+    "ma_slow": 21,
+    "macd_fast": 12,
+    "macd_slow": 26,
+    "macd_signal": 9
+  },
+  "vision": {
+    "chart_capture_enabled": true,
+    "screen_region": null,
+    "analysis_interval": 30
+  },
+  "voice": {
+    "enabled": true,
+    "language": "ko"
+  }
+}

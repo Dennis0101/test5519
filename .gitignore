@@ -1,21 +1,66 @@
-.env
+# 22-Billion Trading System - Git Ignore
+
+# Configuration (contains API keys - NEVER COMMIT!)
+config.json
+
+# Python
 __pycache__/
-*.db
-*.pid
-Scripts/net/DCSServerBot/DCSServerBotConfig.lua
-*.csv
-.stignore
-/venv/
-/.idea/
-/test/
-/reports/
-/export/
-/plugins/test/
-/plugins/community/
-/plugins/santaclaus/
-/build/
-/fonts/
-/Music/
-/logs/
-/config/
-/.emmyrc.json
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+ENV/
+env/
+.venv
+
+# Trading Data
+signals/
+logs/
+charts/
+*.png
+*.jpg
+*.jpeg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pytest
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Environments
+.env
+.env.local
