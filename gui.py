@@ -660,6 +660,9 @@ class TradingGUI:
         """
         ENHANCEMENT v1.6.0: Update news analysis
         """
+        if not self.news_analyzer:
+            return
+        
         try:
             # Get latest news
             news_items = self.news_analyzer.get_latest_news(limit=5)
@@ -678,14 +681,21 @@ class TradingGUI:
                 # Log concise summary
                 self.log(f"   {sentiment['sentiment']} [{sentiment['score']}] - {sentiment['summary']}")
                 self.log("")
+            else:
+                # No news found
+                self.root.after(0, lambda: self.news_summary_label.config(text="뉴스: 데이터 없음"))
                 
         except Exception as e:
             print(f"⚠️ News update error: {e}")
+            self.root.after(0, lambda: self.news_summary_label.config(text="뉴스: 일시적 오류"))
     
     def _update_market_intelligence(self):
         """
         ENHANCEMENT v1.6.0: Update market analysis
         """
+        if not self.market_analyzer:
+            return
+        
         try:
             # Get market overview
             market = self.market_analyzer.get_market_overview()
@@ -703,6 +713,7 @@ class TradingGUI:
             
         except Exception as e:
             print(f"⚠️ Market update error: {e}")
+            self.root.after(0, lambda: self.market_summary_label.config(text="시장: 일시적 오류"))
         
     def _status_monitor(self):
         """
