@@ -396,3 +396,36 @@ class TradingBrain:
         """
         
         return briefing.strip()
+    
+    def get_compact_summary(self, decision):
+        """
+        ENHANCEMENT v1.6.0: Ultra-compact signal summary
+        
+        Returns one-line essential info only
+        """
+        if not decision:
+            return "신호: 대기중"
+        
+        if not decision['approved']:
+            # Rejected signal
+            main_risk = decision['risks'][0] if decision['risks'] else '조건 미달'
+            return f"❌ 거부: {main_risk}"
+        
+        # Approved signal - show essentials only
+        signal_type = decision['signal_type']
+        confidence = decision['confidence']
+        entry = decision['entry_price']
+        stop = decision['stop_loss']
+        target = decision['take_profit']
+        
+        emoji = '🟢' if signal_type == 'LONG' else '🔴'
+        
+        # Calculate percentages for quick view
+        if signal_type == 'LONG':
+            stop_pct = ((stop - entry) / entry * 100)
+            target_pct = ((target - entry) / entry * 100)
+        else:
+            stop_pct = ((entry - stop) / entry * 100)
+            target_pct = ((entry - target) / entry * 100)
+        
+        return f"{emoji} {signal_type} [{confidence:.0f}%] 진입:{entry:,.0f} 손절:{stop_pct:+.1f}% 목표:{target_pct:+.1f}%"

@@ -19,6 +19,8 @@ from technical_indicators import TechnicalIndicators
 from vision_engine import VisionEngine
 from trading_brain import TradingBrain
 from gui import TradingGUI
+from news_analyzer import NewsAnalyzer
+from market_analyzer import MarketAnalyzer
 
 
 def load_config():
@@ -171,13 +173,21 @@ def main():
         print("  👁️  Initializing Vision Engine...")
         vision_engine = VisionEngine(config)
         
+        # Initialize News Analyzer
+        print("  📰 Initializing News Analyzer...")
+        news_analyzer = NewsAnalyzer(config)
+        
+        # Initialize Market Analyzer
+        print("  🌍 Initializing Market Analyzer...")
+        market_analyzer = MarketAnalyzer(config)
+        
         # Initialize Trading Brain
         print("  🧠 Initializing Trading Brain...")
         trading_brain = TradingBrain(config, data_engine, technical_indicators, vision_engine)
         
         # Initialize GUI
         print("  🖥️  Initializing GUI...")
-        gui = TradingGUI(config, trading_brain)
+        gui = TradingGUI(config, trading_brain, news_analyzer, market_analyzer)
         
         print("")
         print("✅ All components initialized successfully")

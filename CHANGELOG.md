@@ -1,5 +1,286 @@
 # 22-Billion Trading Coach - Changelog
 
+## Version 1.6.0 (2026-02-17) - Intelligence Upgrade (News + Market Analysis)
+
+### 🌍 Real-time News & Market Intelligence
+
+#### 1. News Analyzer (Automatic News Monitoring) 📰
+**Problem:** Manually checking Google for crypto news = time-consuming, miss important updates.
+
+**Solution:** Automated news collection + AI sentiment analysis.
+
+**Features:**
+- **Auto-fetch news** from CryptoCompare & CoinGecko (free APIs)
+- **AI sentiment analysis** (GPT-4o-mini analyzes bullish/bearish)
+- **Impact scoring** (0-100 scale)
+- **Updates every 5 minutes** automatically
+- **Concise summaries** (30 characters or less)
+
+**Display:**
+```
+🌍 MARKET INTELLIGENCE:
+  시장: 🟢 BULLISH | 공포탐욕:72 | BTC:48%
+  뉴스: 🟢 BULLISH [68] ⚠️ 기관 매수세 증가
+```
+
+**Sources:**
+- CryptoCompare News API (free)
+- CoinGecko Trending (free)
+- AI sentiment analysis (GPT-4o-mini)
+
+#### 2. Market Analyzer (Overall Market Conditions) 🌍
+**Problem:** Don't know if it's bull or bear market context.
+
+**Solution:** Automated market-wide analysis.
+
+**Metrics Tracked:**
+- **Fear & Greed Index** (0-100 from Alternative.me)
+- **BTC Dominance** (market share percentage)
+- **Market Cap Change** (24h percentage)
+- **Global sentiment** (BULLISH/BEARISH/NEUTRAL)
+
+**Updates:** Every 10 minutes automatically
+
+**Display:**
+```
+🟢 BULLISH | 공포탐욕:72 (Greed) | BTC점유율:48% | 시총 24h:상승 3.2%
+```
+
+#### 3. Compact Signal Summary (Key Info Only) 🎯
+**Problem:** Signal output too long, hard to scan quickly.
+
+**Solution:** One-line essential summary.
+
+**Format:**
+```
+OLD (Verbose):
+════════════════════════════════════
+🎯 22-BILLION TRADING SIGNAL
+════════════════════════════════════
+신호: LONG 
+신뢰도: 85.0%
+현재가: $92,450.00
+진입가: $92,450.00
+손절가: $91,950.00
+목표가: $93,450.00
+...20+ more lines...
+
+NEW (Compact):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 신호: 🟢 LONG [85%] 진입:92,450 손절:-0.5% 목표:+1.1%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(Full details shown only if approved)
+```
+
+**Benefits:**
+- Scan signals at a glance
+- Less log clutter
+- Focus on essentials
+- Full details when needed
+
+#### 4. Enhanced Error Handling 🛡️
+**Improvements:**
+- Try-catch on all API calls
+- Graceful degradation (works even if news fails)
+- Cached data fallback
+- Detailed error logging
+- No crashes from external APIs
+
+#### 5. Auto-Start Feature 🚀
+**New Config Option:**
+```json
+"trading": {
+  "auto_start": true  // Start automatically on launch
+}
+```
+
+**Use Case:**
+- Set auto_start: true
+- Run: python main.py
+- System starts in 3 seconds automatically
+- No need to click ENGAGE
+
+**Benefits:**
+- Faster startup for regular users
+- Good for automated deployment
+- Optional (false by default)
+
+---
+
+## New Files
+
+1. **news_analyzer.py** (NEW)
+   - Fetches crypto news from multiple sources
+   - AI sentiment analysis with GPT-4o-mini
+   - Impact scoring and classification
+   - Concise summaries
+
+2. **market_analyzer.py** (NEW)
+   - Fear & Greed Index tracker
+   - BTC dominance monitor
+   - Market cap analysis
+   - Overall sentiment determination
+
+---
+
+## Modified Files
+
+1. **main.py**
+   - Added news_analyzer initialization
+   - Added market_analyzer initialization
+   - Updated GUI initialization
+
+2. **gui.py**
+   - New: Market intelligence panel UI
+   - New: News display panel
+   - New: _update_news_intelligence() method
+   - New: _update_market_intelligence() method
+   - Enhanced: _analysis_loop() with news/market updates
+   - Enhanced: run() with auto-start support
+
+3. **trading_brain.py**
+   - New: get_compact_summary() method
+   - Returns one-line essential info
+
+4. **config.example.json**
+   - New: intelligence section
+   - New: auto_start option
+   - Optimized: Better defaults (15m timeframe, vision off)
+
+---
+
+## User Experience Improvements
+
+### Before v1.6.0
+```
+[Log Window]
+[12:34:56] Long signal detected!
+[12:34:56] ════════════════════
+[12:34:56] Entry: $92,450
+[12:34:56] Stop: $91,950
+[12:34:56] Target: $93,450
+[12:34:56] RSI: 28.5
+[12:34:56] BB: 12.3%
+[12:34:56] ... 20+ more lines ...
+
+User: "Too much info, can't scan quickly!" ❌
+```
+
+### After v1.6.0
+```
+[Log Window]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 신호: 🟢 LONG [85%] 진입:92,450 손절:-0.5% 목표:+1.1%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(Full details below if approved)
+
+User: "Perfect! Got it in 1 second!" ✅
+```
+
+### News & Market Context
+```
+[GUI Top]
+🌍 MARKET INTELLIGENCE:
+  시장: 🟢 BULLISH | 공포탐욕:72 | BTC:48%
+  뉴스: 🟢 BULLISH [68] 기관 매수세 증가
+
+User: "Ah, bullish market + bullish news = confidence!" ✅
+```
+
+---
+
+## Performance & Cost
+
+**News API Calls:**
+- Updates: Every 5 minutes
+- Daily calls: 288/day
+- Cost: FREE (using free APIs)
+
+**Market API Calls:**
+- Updates: Every 10 minutes
+- Daily calls: 144/day
+- Cost: FREE (using free APIs)
+
+**AI Sentiment Analysis:**
+- Per update: $0.0003 (very cheap!)
+- Daily: 288 × $0.0003 = $0.086
+- Monthly: $2.60
+- **Very affordable for valuable context!**
+
+---
+
+## Migration Guide
+
+### For Existing Users
+
+**No action required!** All features work automatically.
+
+**Optional Configuration:**
+```json
+// In config.json, add (optional):
+"trading": {
+  "auto_start": false  // Set true for auto-start
+},
+"intelligence": {
+  "news_enabled": true,        // Enable/disable news
+  "market_analysis_enabled": true  // Enable/disable market
+}
+```
+
+**What you'll see:**
+1. New intelligence panel (below timeframe)
+2. Compact signal summaries (one line)
+3. Auto-updating news & market sentiment
+4. Faster startup option (auto_start)
+
+---
+
+## Benefits Summary
+
+| Feature | Benefit |
+|---------|---------|
+| News Analysis | Know market context instantly |
+| Market Sentiment | Understand overall conditions |
+| Compact Summaries | Scan signals at a glance |
+| Auto-Start | Faster regular startup |
+| Free APIs | No additional cost |
+| AI Analysis | Smart sentiment detection |
+
+---
+
+## Version History
+
+### v1.6.0 (2026-02-17) ⭐
+- ✅ Real-time news analysis
+- ✅ Market sentiment tracking
+- ✅ Compact signal summaries
+- ✅ Auto-start feature
+- ✅ Enhanced error handling
+
+### v1.5.0 (2026-02-17)
+- ✅ Dynamic timeframe switching
+
+### v1.4.0 (2026-02-17)
+- ✅ Cyberpunk UI + panic button
+
+### v1.3.0 (2026-02-17)
+- ✅ Zombie mode + thread safety
+
+### v1.2.0 (2026-02-17)
+- ✅ Performance optimization
+
+### v1.1.0 (2026-02-17)
+- ✅ Safety improvements
+
+### v1.0.0 (2026-02-17)
+- ✅ Initial release
+
+---
+
+**Your trading coach now has eyes on the entire market! 📰🌍🎯**
+
+---
+
 ## Version 1.5.0 (2026-02-17) - Dynamic Timeframe (Real-time Chart Sync)
 
 ### 📊 Dynamic Timeframe Switching (Chart Synchronization)

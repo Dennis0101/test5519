@@ -33,9 +33,11 @@ class TradingGUI:
         'text_dim': '#808080',       # Dimmed text
     }
     
-    def __init__(self, config, trading_brain):
+    def __init__(self, config, trading_brain, news_analyzer=None, market_analyzer=None):
         self.config = config
         self.trading_brain = trading_brain
+        self.news_analyzer = news_analyzer
+        self.market_analyzer = market_analyzer
         self.voice_enabled = config['voice']['enabled']
         
         # Initialize text-to-speech
@@ -300,6 +302,48 @@ class TradingGUI:
         )
         self.current_tf_label.pack(side='left', padx=15)
         
+        # ENHANCEMENT v1.6.0: News & Market Intelligence Panel
+        intel_frame = tk.Frame(self.root, bg=self.COLORS['bg_panel'], bd=1, relief='solid')
+        intel_frame.pack(pady=5, padx=20, fill='x')
+        
+        intel_label = tk.Label(
+            intel_frame,
+            text="🌍 MARKET INTELLIGENCE:",
+            font=("Courier New", 9, "bold"),
+            fg=self.COLORS['neon_blue'],
+            bg=self.COLORS['bg_panel']
+        )
+        intel_label.pack(side='left', padx=15, pady=5)
+        
+        # Market sentiment display
+        self.market_summary_label = tk.Label(
+            intel_frame,
+            text="시장: 로딩중...",
+            font=("Courier New", 9),
+            fg=self.COLORS['text_main'],
+            bg=self.COLORS['bg_panel']
+        )
+        self.market_summary_label.pack(side='left', padx=10)
+        
+        # Separator
+        tk.Label(
+            intel_frame,
+            text="|",
+            font=("Courier New", 9),
+            fg=self.COLORS['text_dim'],
+            bg=self.COLORS['bg_panel']
+        ).pack(side='left', padx=5)
+        
+        # News sentiment display
+        self.news_summary_label = tk.Label(
+            intel_frame,
+            text="뉴스: 로딩중...",
+            font=("Courier New", 9),
+            fg=self.COLORS['text_main'],
+            bg=self.COLORS['bg_panel']
+        )
+        self.news_summary_label.pack(side='left', padx=10)
+        
         # Log area
         log_frame = tk.Frame(self.root, bg=self.COLORS['bg_main'])
         log_frame.pack(pady=10, padx=20, fill='both', expand=True)
@@ -545,11 +589,20 @@ class TradingGUI:
         return korean_map.get(timeframe, timeframe)
         
     def _analysis_loop(self):
-        """Main analysis loop running in background thread"""
+        """
+        ENHANCED v1.6.0: Main analysis loop with news & market intelligence
+        """
         import time
         
         update_interval = self.config['trading']['update_interval']
         last_update = 0
+        last_news_update = 0
+        last_market_update = 0
+        
+        # Update news every 5 minutes
+        news_interval = 300
+        # Update market every 10 minutes
+        market_interval = 600
         
         while self.running:
             try:
@@ -560,25 +613,96 @@ class TradingGUI:
                     self._update_market_display()
                     last_update = current_time
                 
+                # Update news analysis (every 5 minutes)
+                if self.news_analyzer and (current_time - last_news_update >= news_interval):
+                    self._update_news_intelligence()
+                    last_news_update = current_time
+                
+                # Update market analysis (every 10 minutes)
+                if self.market_analyzer and (current_time - last_market_update >= market_interval):
+                    self._update_market_intelligence()
+                    last_market_update = current_time
+                
                 # Run market analysis
                 decision = self.trading_brain.analyze_market()
                 
                 if decision:
-                    # Log decision
-                    summary = self.trading_brain.format_decision_summary(decision)
-                    self.log(summary)
+                    # ENHANCEMENT: Compact summary in log
+                    compact = self.trading_brain.get_compact_summary(decision)
+                    self.log("")
+                    self.log("━" * 70)
+                    self.log(f"🎯 신호: {compact}")
+                    self.log("━" * 70)
                     
-                    # Voice alert for approved signals
-                    if decision['approved'] and self.voice_enabled:
-                        briefing = self.trading_brain.get_voice_briefing(decision)
-                        if briefing:
-                            self.speak(briefing)
+                    # Full details only if approved
+                    if decision['approved']:
+                        summary = self.trading_brain.format_decision_summary(decision)
+                        self.log(summary)
+                        
+                        # Voice alert
+                        if self.voice_enabled:
+                            briefing = self.trading_brain.get_voice_briefing(decision)
+                            if briefing:
+                                self.speak(briefing)
+                    else:
+                        # Rejected - show reason only
+                        main_risk = decision['risks'][0] if decision['risks'] else '조건 미달'
+                        self.log(f"   사유: {main_risk}")
+                        self.log("")
                 
                 time.sleep(update_interval)
                 
             except Exception as e:
                 self.log(f"❌ Error in analysis loop: {e}")
                 time.sleep(5)
+    
+    def _update_news_intelligence(self):
+        """
+        ENHANCEMENT v1.6.0: Update news analysis
+        """
+        try:
+            # Get latest news
+            news_items = self.news_analyzer.get_latest_news(limit=5)
+            
+            if news_items:
+                self.log("")
+                self.log("📰 뉴스 업데이트...")
+                
+                # Analyze sentiment
+                sentiment = self.news_analyzer.analyze_news_sentiment(news_items)
+                
+                # Update GUI
+                compact_news = self.news_analyzer.get_compact_news_summary()
+                self.root.after(0, lambda: self.news_summary_label.config(text=compact_news))
+                
+                # Log concise summary
+                self.log(f"   {sentiment['sentiment']} [{sentiment['score']}] - {sentiment['summary']}")
+                self.log("")
+                
+        except Exception as e:
+            print(f"⚠️ News update error: {e}")
+    
+    def _update_market_intelligence(self):
+        """
+        ENHANCEMENT v1.6.0: Update market analysis
+        """
+        try:
+            # Get market overview
+            market = self.market_analyzer.get_market_overview()
+            
+            self.log("")
+            self.log("🌍 시장 분석 업데이트...")
+            
+            # Update GUI
+            compact_market = self.market_analyzer.get_compact_market_summary()
+            self.root.after(0, lambda: self.market_summary_label.config(text=compact_market))
+            
+            # Log concise summary
+            self.log(f"   {market['market_sentiment']} - {market['summary']}")
+            self.log("")
+            
+        except Exception as e:
+            print(f"⚠️ Market update error: {e}")
         
     def _status_monitor(self):
         """
@@ -713,31 +837,31 @@ class TradingGUI:
         
         self.log("▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓")
         self.log("▓▓▓        22-BILLION HYBRID AI TRADING COACH              ▓▓▓")
-        self.log("▓▓▓              [ CYBERPUNK EDITION ]                     ▓▓▓")
+        self.log("▓▓▓         [ CYBERPUNK EDITION v1.6.0 ]                   ▓▓▓")
         self.log("▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓")
         self.log("")
         self.log("╔═══════════════════════════════════════════════════════════════════╗")
+        self.log("║  🆕 NEW: Real-time News & Market Intelligence                    ║")
         self.log("║  Welcome to the Matrix. Press ENGAGE to begin.                   ║")
         self.log("╚═══════════════════════════════════════════════════════════════════╝")
         self.log("")
-        self.log("🚨 PANIC BUTTON: Press SPACEBAR anytime for EMERGENCY STOP")
+        self.log("🚨 PANIC: SPACEBAR = Emergency stop")
+        self.log("📊 TIMEFRAME: Click buttons to switch (1m-4h)")
+        self.log("🌍 INTELLIGENCE: Auto-updates news & market analysis")
         self.log("")
-        self.log("📊 STATUS INDICATORS (Top Right):")
-        self.log("   [●] API   - Connection to exchange")
-        self.log("   [●] DATA  - Real-time data flow")
-        self.log("   [●] AI    - Brain analysis active")
-        self.log("   GREEN = OK | RED = Error")
-        self.log("")
-        self.log("⚠️ PRE-FLIGHT CHECKLIST:")
-        self.log("   [1] config.json created from config.example.json")
-        self.log("   [2] Binance API keys added (testnet recommended)")
-        self.log("   [3] OpenAI API key configured")
-        self.log("   [4] TA-Lib installed (see README.md)")
+        self.log("📊 STATUS: [●] API [●] DATA [●] AI (GREEN=OK, RED=Error)")
         self.log("")
         self.log("═══════════════════════════════════════════════════════════════════")
-        self.log("SYSTEM READY. Press ENGAGE to start trading.")
+        self.log("✅ SYSTEM READY")
         self.log("═══════════════════════════════════════════════════════════════════")
         self.log("")
+        
+        # ENHANCEMENT v1.6.0: Auto-start feature
+        auto_start = self.config.get('trading', {}).get('auto_start', False)
+        if auto_start:
+            self.log("🚀 AUTO-START enabled in config")
+            self.log("   Starting in 3 seconds...")
+            self.root.after(3000, self.start_trading)
         
         self.root.mainloop()
     
