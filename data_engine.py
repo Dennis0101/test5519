@@ -1,6 +1,11 @@
 """
 22-Billion: Data Engine
 Handles real-time data collection from Binance Futures using ccxt and WebSocket
+
+ENHANCEMENTS:
+- Zombie Mode: Auto-reconnect with heartbeat monitoring
+- Thread Safety: Lock protection for race conditions
+- Real-time Candle: Live updating of current candle
 """
 
 import ccxt
@@ -34,34 +39,52 @@ class DataEngine:
         if config['binance']['testnet']:
             self.exchange.set_sandbox_mode(True)
         
+        # ENHANCEMENT 2: Thread Safety Lock (Race Condition Protection)
+        self.data_lock = threading.Lock()
+        
         # Data storage
         self.current_price = 0
         self.orderbook = {'bids': [], 'asks': []}
         self.klines = deque(maxlen=200)  # Store last 200 candles
         self.trades = deque(maxlen=100)
         
+        # ENHANCEMENT 3: Current candle tracking
+        self.current_candle = None  # Live updating candle
+        
         # WebSocket
         self.ws = None
         self.ws_thread = None
         self.running = False
+        
+        # ENHANCEMENT 1: Heartbeat monitoring (Zombie Mode)
+        self.last_data_time = time.time()
+        self.heartbeat_interval = 5  # Alert if no data for 5 seconds
+        self.heartbeat_thread = None
+        self.reconnect_attempts = 0
+        self.max_reconnect_delay = 60  # Max 60 seconds between reconnects
         
         # Volume analysis
         self.buy_volume = 0
         self.sell_volume = 0
         
     def start(self):
-        """Start data collection"""
+        """Start data collection with zombie mode enabled"""
         print("🚀 Starting Data Engine...")
         self.running = True
+        self.reconnect_attempts = 0
         
         # Load initial historical data
         self._load_historical_data()
         
-        # Start WebSocket connection
-        self.ws_thread = threading.Thread(target=self._run_websocket, daemon=True)
+        # Start WebSocket connection (zombie mode - infinite retry)
+        self.ws_thread = threading.Thread(target=self._run_websocket_zombie, daemon=True)
         self.ws_thread.start()
         
-        print("✅ Data Engine started successfully")
+        # ENHANCEMENT 1: Start heartbeat monitor
+        self.heartbeat_thread = threading.Thread(target=self._heartbeat_monitor, daemon=True)
+        self.heartbeat_thread.start()
+        
+        print("✅ Data Engine started successfully (Zombie Mode ON 🧟)")
         
     def stop(self):
         """Stop data collection"""
@@ -94,8 +117,13 @@ class DataEngine:
         except Exception as e:
             print(f"❌ Error loading historical data: {e}")
             
-    def _run_websocket(self):
-        """Run WebSocket connection for real-time data"""
+    def _run_websocket_zombie(self):
+        """
+        ENHANCEMENT 1: Zombie Mode WebSocket (Never Dies!)
+        
+        Infinite loop with exponential backoff for reconnection.
+        No recursion = No stack overflow risk.
+        """
         symbol = self.symbol.replace('/', '').lower()  # btcusdt
         
         # Binance Futures WebSocket streams
@@ -107,167 +135,307 @@ class DataEngine:
         
         ws_url = f"wss://fstream.binance.com/stream?streams={'/'.join(streams)}"
         
-        def on_message(ws, message):
+        # ZOMBIE MODE: Infinite reconnection loop
+        while self.running:
             try:
-                data = json.loads(message)
-                stream = data.get('stream', '')
-                event_data = data.get('data', {})
+                print(f"🧟 Zombie Mode: Attempting connection (attempt #{self.reconnect_attempts + 1})")
                 
-                if 'aggTrade' in stream:
-                    self._handle_trade(event_data)
-                elif 'depth' in stream:
-                    self._handle_orderbook(event_data)
-                elif 'kline' in stream:
-                    self._handle_kline(event_data)
+                def on_message(ws, message):
+                    try:
+                        # Update heartbeat
+                        self.last_data_time = time.time()
+                        
+                        data = json.loads(message)
+                        stream = data.get('stream', '')
+                        event_data = data.get('data', {})
+                        
+                        if 'aggTrade' in stream:
+                            self._handle_trade(event_data)
+                        elif 'depth' in stream:
+                            self._handle_orderbook(event_data)
+                        elif 'kline' in stream:
+                            self._handle_kline(event_data)
+                            
+                    except Exception as e:
+                        print(f"❌ WebSocket message error: {e}")
+                        
+                def on_error(ws, error):
+                    print(f"❌ WebSocket error: {error}")
                     
+                def on_close(ws, close_status_code, close_msg):
+                    print(f"🔌 WebSocket closed: {close_msg}")
+                    # Don't reconnect here - let zombie loop handle it
+                    
+                def on_open(ws):
+                    print("🔗 WebSocket connected successfully")
+                    self.reconnect_attempts = 0  # Reset on successful connection
+                    
+                self.ws = websocket.WebSocketApp(
+                    ws_url,
+                    on_message=on_message,
+                    on_error=on_error,
+                    on_close=on_close,
+                    on_open=on_open
+                )
+                
+                # This blocks until connection is lost
+                self.ws.run_forever()
+                
             except Exception as e:
-                print(f"❌ WebSocket message error: {e}")
-                
-        def on_error(ws, error):
-            print(f"❌ WebSocket error: {error}")
+                print(f"❌ WebSocket exception: {e}")
             
-        def on_close(ws, close_status_code, close_msg):
-            print(f"🔌 WebSocket closed: {close_msg}")
+            # Connection lost - calculate backoff and reconnect
             if self.running:
-                # Reconnect after 5 seconds
-                time.sleep(5)
-                self._run_websocket()
+                self.reconnect_attempts += 1
                 
-        def on_open(ws):
-            print("🔗 WebSocket connected successfully")
-            
-        self.ws = websocket.WebSocketApp(
-            ws_url,
-            on_message=on_message,
-            on_error=on_error,
-            on_close=on_close,
-            on_open=on_open
-        )
+                # Exponential backoff: 1s, 2s, 4s, 8s, 16s, 32s, 60s (max)
+                backoff_delay = min(2 ** (self.reconnect_attempts - 1), self.max_reconnect_delay)
+                
+                print(f"🧟 Zombie Mode: Reconnecting in {backoff_delay}s... (attempt #{self.reconnect_attempts})")
+                time.sleep(backoff_delay)
+            else:
+                print("🛑 Zombie Mode: Shutting down gracefully")
+                break
+    
+    def _heartbeat_monitor(self):
+        """
+        ENHANCEMENT 1: Heartbeat Monitor (CPR for WebSocket!)
         
-        self.ws.run_forever()
+        Checks if data is flowing. If not, performs CPR (reconnection).
+        """
+        print("❤️ Heartbeat monitor started")
+        
+        while self.running:
+            time.sleep(self.heartbeat_interval)
+            
+            if not self.running:
+                break
+            
+            # Check if data is flowing
+            time_since_last_data = time.time() - self.last_data_time
+            
+            if time_since_last_data > self.heartbeat_interval:
+                print(f"💔 FLATLINE DETECTED! No data for {time_since_last_data:.1f}s")
+                print(f"🚑 Performing CPR (reconnection)...")
+                
+                # Force reconnection
+                if self.ws:
+                    try:
+                        self.ws.close()
+                    except:
+                        pass
+                
+                # Reset heartbeat
+                self.last_data_time = time.time()
+        
+        print("❤️ Heartbeat monitor stopped")
         
     def _handle_trade(self, data):
-        """Handle aggregated trade data"""
+        """
+        ENHANCEMENT 2: Thread-safe trade handler
+        """
         try:
             price = float(data['p'])
             quantity = float(data['q'])
             is_buyer_maker = data['m']  # True if buyer is maker (sell order)
             
-            self.current_price = price
-            
-            # Track volume
-            if is_buyer_maker:
-                self.sell_volume += quantity
-            else:
-                self.buy_volume += quantity
+            # LOCK: Prevent race condition
+            with self.data_lock:
+                self.current_price = price
                 
-            self.trades.append({
-                'timestamp': data['T'],
-                'price': price,
-                'quantity': quantity,
-                'is_sell': is_buyer_maker
-            })
+                # Track volume
+                if is_buyer_maker:
+                    self.sell_volume += quantity
+                else:
+                    self.buy_volume += quantity
+                    
+                self.trades.append({
+                    'timestamp': data['T'],
+                    'price': price,
+                    'quantity': quantity,
+                    'is_sell': is_buyer_maker
+                })
             
         except Exception as e:
             print(f"❌ Error handling trade: {e}")
             
     def _handle_orderbook(self, data):
-        """Handle order book data"""
+        """
+        ENHANCEMENT 2: Thread-safe orderbook handler
+        """
         try:
-            self.orderbook = {
-                'bids': [[float(bid[0]), float(bid[1])] for bid in data['b']],
-                'asks': [[float(ask[0]), float(ask[1])] for ask in data['a']]
-            }
+            # LOCK: Prevent race condition
+            with self.data_lock:
+                self.orderbook = {
+                    'bids': [[float(bid[0]), float(bid[1])] for bid in data['b']],
+                    'asks': [[float(ask[0]), float(ask[1])] for ask in data['a']]
+                }
         except Exception as e:
             print(f"❌ Error handling orderbook: {e}")
             
     def _handle_kline(self, data):
-        """Handle kline/candlestick data"""
+        """
+        ENHANCEMENT 2 & 3: Thread-safe + Real-time candle update
+        
+        Now updates BOTH completed candles AND current live candle!
+        """
         try:
             kline = data['k']
             
-            if kline['x']:  # Only add completed candles
-                self.klines.append({
-                    'timestamp': kline['t'],
-                    'open': float(kline['o']),
-                    'high': float(kline['h']),
-                    'low': float(kline['l']),
-                    'close': float(kline['c']),
-                    'volume': float(kline['v'])
-                })
-                
-                # Reset volume counters on new candle
-                self.buy_volume = 0
-                self.sell_volume = 0
+            candle_data = {
+                'timestamp': kline['t'],
+                'open': float(kline['o']),
+                'high': float(kline['h']),
+                'low': float(kline['l']),
+                'close': float(kline['c']),
+                'volume': float(kline['v'])
+            }
+            
+            # LOCK: Prevent race condition
+            with self.data_lock:
+                if kline['x']:
+                    # Candle COMPLETED - add to history
+                    self.klines.append(candle_data)
+                    
+                    # Reset current candle
+                    self.current_candle = None
+                    
+                    # Reset volume counters on new candle
+                    self.buy_volume = 0
+                    self.sell_volume = 0
+                    
+                    print(f"📊 New candle completed: Close ${candle_data['close']:,.2f}")
+                else:
+                    # ENHANCEMENT 3: Candle UPDATING - track in real-time!
+                    self.current_candle = candle_data
+                    
+                    # Also update last kline if exists (for smooth transitions)
+                    if len(self.klines) > 0:
+                        # Create a temporary merged view for analysis
+                        # Last completed + current live = most accurate picture
+                        pass  # Handled in get_closes() etc.
                 
         except Exception as e:
             print(f"❌ Error handling kline: {e}")
             
     def get_closes(self):
-        """Get array of closing prices"""
-        if len(self.klines) == 0:
-            return np.array([])
-        return np.array([k['close'] for k in self.klines])
+        """
+        ENHANCEMENT 2 & 3: Thread-safe + Include current live candle
+        """
+        with self.data_lock:
+            if len(self.klines) == 0:
+                return np.array([])
+            
+            closes = [k['close'] for k in self.klines]
+            
+            # ENHANCEMENT 3: Include current live candle!
+            if self.current_candle:
+                closes.append(self.current_candle['close'])
+            
+            return np.array(closes)
     
     def get_highs(self):
-        """Get array of high prices"""
-        if len(self.klines) == 0:
-            return np.array([])
-        return np.array([k['high'] for k in self.klines])
+        """
+        ENHANCEMENT 2 & 3: Thread-safe + Include current live candle
+        """
+        with self.data_lock:
+            if len(self.klines) == 0:
+                return np.array([])
+            
+            highs = [k['high'] for k in self.klines]
+            
+            # ENHANCEMENT 3: Include current live candle!
+            if self.current_candle:
+                highs.append(self.current_candle['high'])
+            
+            return np.array(highs)
     
     def get_lows(self):
-        """Get array of low prices"""
-        if len(self.klines) == 0:
-            return np.array([])
-        return np.array([k['low'] for k in self.klines])
+        """
+        ENHANCEMENT 2 & 3: Thread-safe + Include current live candle
+        """
+        with self.data_lock:
+            if len(self.klines) == 0:
+                return np.array([])
+            
+            lows = [k['low'] for k in self.klines]
+            
+            # ENHANCEMENT 3: Include current live candle!
+            if self.current_candle:
+                lows.append(self.current_candle['low'])
+            
+            return np.array(lows)
     
     def get_volumes(self):
-        """Get array of volumes"""
-        if len(self.klines) == 0:
-            return np.array([])
-        return np.array([k['volume'] for k in self.klines])
+        """
+        ENHANCEMENT 2 & 3: Thread-safe + Include current live candle
+        """
+        with self.data_lock:
+            if len(self.klines) == 0:
+                return np.array([])
+            
+            volumes = [k['volume'] for k in self.klines]
+            
+            # ENHANCEMENT 3: Include current live candle!
+            if self.current_candle:
+                volumes.append(self.current_candle['volume'])
+            
+            return np.array(volumes)
     
     def get_orderbook_imbalance(self):
-        """Calculate order book imbalance (buy wall vs sell wall)"""
+        """
+        ENHANCEMENT 2: Thread-safe orderbook imbalance calculation
+        """
         try:
-            if not self.orderbook['bids'] or not self.orderbook['asks']:
-                return 0
-            
-            # Sum top 10 levels
-            bid_volume = sum([bid[1] for bid in self.orderbook['bids'][:10]])
-            ask_volume = sum([ask[1] for ask in self.orderbook['asks'][:10]])
-            
-            if ask_volume == 0:
-                return 1.0
-            
-            # Positive means more buying pressure
-            imbalance = (bid_volume - ask_volume) / (bid_volume + ask_volume)
-            return imbalance
+            with self.data_lock:
+                if not self.orderbook['bids'] or not self.orderbook['asks']:
+                    return 0
+                
+                # Sum top 10 levels
+                bid_volume = sum([bid[1] for bid in self.orderbook['bids'][:10]])
+                ask_volume = sum([ask[1] for ask in self.orderbook['asks'][:10]])
+                
+                if ask_volume == 0:
+                    return 1.0
+                
+                # Positive means more buying pressure
+                imbalance = (bid_volume - ask_volume) / (bid_volume + ask_volume)
+                return imbalance
             
         except Exception as e:
             print(f"❌ Error calculating orderbook imbalance: {e}")
             return 0
     
     def get_volume_ratio(self):
-        """Get buy/sell volume ratio"""
-        total = self.buy_volume + self.sell_volume
-        if total == 0:
-            return 1.0
-        return self.buy_volume / total
+        """
+        ENHANCEMENT 2: Thread-safe volume ratio
+        """
+        with self.data_lock:
+            total = self.buy_volume + self.sell_volume
+            if total == 0:
+                return 1.0
+            return self.buy_volume / total
     
     def get_market_data(self):
-        """Get current market data snapshot"""
-        return {
-            'price': self.current_price,
-            'orderbook_imbalance': self.get_orderbook_imbalance(),
-            'volume_ratio': self.get_volume_ratio(),
-            'bid_ask_spread': self._get_spread(),
-            'num_candles': len(self.klines)
-        }
+        """
+        ENHANCEMENT 2: Thread-safe market data snapshot
+        """
+        with self.data_lock:
+            return {
+                'price': self.current_price,
+                'orderbook_imbalance': self.get_orderbook_imbalance(),
+                'volume_ratio': self.get_volume_ratio(),
+                'bid_ask_spread': self._get_spread(),
+                'num_candles': len(self.klines) + (1 if self.current_candle else 0),
+                'has_live_candle': self.current_candle is not None
+            }
     
     def _get_spread(self):
-        """Calculate bid-ask spread"""
+        """
+        ENHANCEMENT 2: Thread-safe spread calculation
+        """
         try:
+            # Note: Already called within lock from get_market_data
             if self.orderbook['bids'] and self.orderbook['asks']:
                 best_bid = self.orderbook['bids'][0][0]
                 best_ask = self.orderbook['asks'][0][0]
