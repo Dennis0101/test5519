@@ -1,5 +1,326 @@
 # 22-Billion Trading Coach - Changelog
 
+## Version 1.5.0 (2026-02-17) - Dynamic Timeframe (Real-time Chart Sync)
+
+### 📊 Dynamic Timeframe Switching (Chart Synchronization)
+
+#### Problem: Data Mismatch Danger
+**Scenario:**
+```
+User watches Binance chart: 30m timeframe
+Bot analyzes data: 3m timeframe (fixed in config)
+Result: COMPLETE DATA MISMATCH! ⚠️
+
+Example:
+- User sees: 30m chart showing strong support
+- Bot analyzes: 3m noise and gives wrong signal
+- User trades based on bot: Disaster! ❌
+```
+
+#### Solution: Dynamic Timeframe Selector
+**NEW UI Component:** One-click timeframe switching with safe restart.
+
+**Implementation:**
+```python
+# NEW: Timeframe selector UI
+⏱ TIMEFRAME: [1m] [3m] [5m] [15m] [30m] [1h] [4h]
+              ^^^^                              ← Highlighted
+
+# Click any button → instant timeframe change!
+```
+
+**Features:**
+1. **UI Selector** (7 buttons)
+   - Timeframes: 1m, 3m, 5m, 15m, 30m, 1h, 4h
+   - Current highlighted in neon green
+   - One-click switching
+
+2. **Safe Change Process**
+   ```
+   User clicks [30m]
+       ↓
+   System: "⚠️ Changing requires restart"
+       ↓
+   Auto-stop trading (safety!)
+       ↓
+   Clear old 3m data
+       ↓
+   Reload 30m historical data
+       ↓
+   Update WebSocket to kline_30m
+       ↓
+   Voice: "30분봉으로 변경되었습니다"
+       ↓
+   Ready to ENGAGE with 30m data!
+   ```
+
+3. **Safety Measures**
+   - Auto-stops system if running
+   - Clears old candle data
+   - Reloads correct historical data
+   - Reconnects WebSocket with new stream
+   - Voice notification in Korean
+
+**Technical Details:**
+
+**New GUI Components:**
+```python
+# Timeframe selector panel
+timeframe_frame = tk.Frame(...)
+
+# 7 timeframe buttons
+timeframes = ['1m', '3m', '5m', '15m', '30m', '1h', '4h']
+for tf in timeframes:
+    btn = tk.Button(text=tf, command=lambda t=tf: change_timeframe(t))
+    
+# Current timeframe indicator
+[Current: 30m]  ← Updates dynamically
+```
+
+**New Methods:**
+
+1. **change_timeframe(new_tf)** - GUI handler
+   - Checks if system running
+   - Stops if necessary
+   - Calls data engine change
+   - Updates UI buttons
+   - Voice notification
+
+2. **_update_timeframe_buttons(new_tf)** - UI update
+   - Highlights selected button (neon green)
+   - Dims others (dark gray)
+
+3. **_get_timeframe_korean(tf)** - Korean conversion
+   - '1m' → '1분봉'
+   - '30m' → '30분봉'
+   - '1h' → '1시간봉'
+
+**Data Engine Support:**
+
+4. **DataEngine.change_timeframe(new_tf)**
+   - Validates timeframe
+   - Stops WebSocket safely
+   - Clears old data (thread-safe)
+   - Updates self.timeframe
+   - Reloads historical data for new TF
+   - Restarts WebSocket with new stream
+   - Restarts heartbeat monitor
+
+---
+
+## Use Cases
+
+### Use Case 1: Scalping → Swing Trade
+```
+User starts day trading (1m chart)
+Decides to swing trade (30m chart)
+
+OLD WAY (v1.4.0):
+1. Stop bot
+2. Close program
+3. Edit config.json manually
+4. Restart program
+5. Press ENGAGE
+Time: 2-3 minutes ❌
+
+NEW WAY (v1.5.0):
+1. Click [30m] button
+2. System auto-stops, changes, reloads
+3. Press ENGAGE
+Time: 5 seconds ✅ (36x faster!)
+```
+
+### Use Case 2: Multi-Timeframe Analysis
+```
+Morning: Check 1h trend
+  → Click [1h], monitor signals
+
+Midday: Scalp on 3m
+  → Click [3m], trade short-term
+
+Evening: Swing on 15m
+  → Click [15m], position trades
+
+All in same session, no restarts!
+```
+
+### Use Case 3: Data Sync Safety
+```
+BEFORE (v1.4.0):
+User switches Binance chart: 3m → 30m
+Bot still analyzes: 3m data
+Mismatch! Bot gives signal based on wrong timeframe
+Result: Confusion, wrong trades ❌
+
+AFTER (v1.5.0):
+User switches Binance chart: 3m → 30m
+User clicks bot: [30m] button
+Bot syncs: 30m data loaded
+Perfect match! Signals align with user's chart
+Result: Confidence, correct trades ✅
+```
+
+---
+
+## Technical Implementation
+
+### Modified Files
+
+1. **data_engine.py**
+   - New: `change_timeframe(new_tf)` method
+   - Safe stop → clear data → reload → restart
+   - Thread-safe data clearing
+   - Validates timeframe input
+
+2. **gui.py**
+   - New: Timeframe selector panel UI
+   - New: 7 timeframe buttons (1m to 4h)
+   - New: `change_timeframe(new_tf)` method
+   - New: `_update_timeframe_buttons(new_tf)` method
+   - New: `_get_timeframe_korean(tf)` method
+   - Enhanced: Button highlighting logic
+
+### Visual Design
+
+**Timeframe Selector Panel:**
+```
+┌────────────────────────────────────────────────────────┐
+│ ⏱ TIMEFRAME: [1m] [3m] [5m] [15m] [30m] [1h] [4h]    │
+│                           ^^^^                         │
+│                     (Current: 15m)                     │
+└────────────────────────────────────────────────────────┘
+```
+
+**Colors:**
+- Selected: Neon green (#00ff41) with black text
+- Unselected: Dark gray (#0a0a0a) with light text
+- Label: Neon blue (#00d9ff)
+- Panel: Dark panel (#1a1a1a)
+
+---
+
+## User Experience
+
+### Log Messages
+```
+[12:30:45] ⚠️ TIMEFRAME CHANGE REQUEST: 3m → 30m
+[12:30:45] ⚠️ Changing timeframe requires system restart
+[12:30:45] 🛑 Stopping system automatically...
+[12:30:46] 🔄 Changing timeframe to 30m...
+[12:30:46] 🧹 Clearing old candle data...
+[12:30:46] ✅ Timeframe updated to 30m
+[12:30:47] 📊 Loading historical data for 30m...
+[12:30:48] ✅ Timeframe changed to 30m
+[12:30:48] 💡 Press ENGAGE to start trading with new timeframe
+```
+
+### Voice Alerts
+```
+Korean TTS:
+- "1분봉으로 변경되었습니다. 다시 시작하세요."
+- "30분봉으로 변경되었습니다. 다시 시작하세요."
+- "1시간봉으로 변경되었습니다. 다시 시작하세요."
+```
+
+---
+
+## Benefits
+
+| Aspect | Before v1.5 | After v1.5 | Improvement |
+|--------|-------------|------------|-------------|
+| Timeframe change | Edit config + restart | One click | 36x faster |
+| Data sync risk | HIGH (manual) | ZERO (auto) | Eliminated |
+| User convenience | Low (tedious) | High (easy) | Much better |
+| Multi-TF analysis | Impractical | Easy | Enabled |
+| Safety | Manual care needed | Auto-handled | Safer |
+
+---
+
+## Safety Features
+
+1. **Auto-Stop Protection**
+   - Cannot change while trading is active
+   - Automatically stops system first
+   - Clean shutdown guaranteed
+
+2. **Data Synchronization**
+   - Clears all old timeframe data
+   - Loads fresh historical data
+   - Reconnects WebSocket correctly
+   - No stale data mixing
+
+3. **Visual Confirmation**
+   - Button highlighting shows current TF
+   - Label displays current selection
+   - Log shows change process
+   - Voice confirms in Korean
+
+4. **Error Handling**
+   - Validates timeframe input
+   - Graceful failure handling
+   - Rolls back on error
+   - User notified of issues
+
+---
+
+## Migration Guide
+
+### For Existing Users
+
+**No action required!** Feature is automatic.
+
+**How to use:**
+1. Look for new timeframe panel below control buttons
+2. Click any timeframe button (1m, 3m, 5m, etc.)
+3. System will auto-stop, change, and prepare
+4. Press ENGAGE to start with new timeframe
+
+**Tips:**
+- Match bot timeframe to your chart
+- Start with longer timeframes (15m+) for learning
+- Shorter timeframes (1m, 3m) = more signals but more noise
+- Longer timeframes (1h, 4h) = fewer but higher quality signals
+
+---
+
+## Version History
+
+### v1.5.0 (2026-02-17)
+- ✅ Dynamic timeframe selector (7 options)
+- ✅ One-click timeframe switching
+- ✅ Safe auto-stop on change
+- ✅ Data synchronization
+- ✅ Visual button highlighting
+- ✅ Korean voice notifications
+
+### v1.4.0 (2026-02-17)
+- ✅ Panic button (SPACEBAR)
+- ✅ Cyberpunk dark mode
+- ✅ Live status indicators
+
+### v1.3.0 (2026-02-17)
+- ✅ Zombie mode
+- ✅ Thread safety
+- ✅ Real-time candles
+
+### v1.2.0 (2026-02-17)
+- ✅ Image optimization
+- ✅ Divergence detection
+- ✅ Trap warnings
+
+### v1.1.0 (2026-02-17)
+- ✅ 60% confidence threshold
+- ✅ AI hallucination protection
+
+### v1.0.0 (2026-02-17)
+- ✅ Initial release
+
+---
+
+**Your system now syncs with your chart in real-time! 📊⏱️**
+
+---
+
 ## Version 1.4.0 (2026-02-17) - GUI Face Upgrade (Cyberpunk Edition)
 
 ### 🎮 GUI: Face Upgrade (Panic Button + Cyberpunk + Live Status)

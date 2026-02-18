@@ -93,6 +93,83 @@ class DataEngine:
         if self.ws:
             self.ws.close()
         print("✅ Data Engine stopped")
+    
+    def change_timeframe(self, new_timeframe):
+        """
+        ENHANCEMENT v1.5.0: Dynamic timeframe change
+        
+        Safely changes timeframe while system is running.
+        Like changing car wheels - must stop first!
+        
+        Args:
+            new_timeframe: New timeframe string (e.g., '1m', '5m', '15m', '30m', '1h', '4h')
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        print(f"🔄 Changing timeframe: {self.timeframe} → {new_timeframe}")
+        
+        # Validate timeframe
+        valid_timeframes = ['1m', '3m', '5m', '15m', '30m', '1h', '4h']
+        if new_timeframe not in valid_timeframes:
+            print(f"❌ Invalid timeframe: {new_timeframe}")
+            return False
+        
+        if new_timeframe == self.timeframe:
+            print(f"⚠️ Already using {new_timeframe}")
+            return True
+        
+        try:
+            # Save running state
+            was_running = self.running
+            
+            # Step 1: Stop if running (safety first!)
+            if was_running:
+                print("🛑 Stopping data collection for timeframe change...")
+                self.running = False
+                if self.ws:
+                    self.ws.close()
+                time.sleep(1)  # Wait for threads to finish
+            
+            # Step 2: Clear old data
+            with self.data_lock:
+                print("🧹 Clearing old candle data...")
+                self.klines.clear()
+                self.current_candle = None
+                self.buy_volume = 0
+                self.sell_volume = 0
+            
+            # Step 3: Update timeframe
+            self.timeframe = new_timeframe
+            self.config['trading']['timeframe'] = new_timeframe
+            print(f"✅ Timeframe updated to {new_timeframe}")
+            
+            # Step 4: Reload historical data for new timeframe
+            print(f"📊 Loading historical data for {new_timeframe}...")
+            self._load_historical_data()
+            
+            # Step 5: Restart if it was running before
+            if was_running:
+                print("🔄 Restarting data engine with new timeframe...")
+                self.running = True
+                self.reconnect_attempts = 0
+                
+                # Restart WebSocket thread
+                self.ws_thread = threading.Thread(target=self._run_websocket_zombie, daemon=True)
+                self.ws_thread.start()
+                
+                # Restart heartbeat if needed
+                if not self.heartbeat_thread or not self.heartbeat_thread.is_alive():
+                    self.heartbeat_thread = threading.Thread(target=self._heartbeat_monitor, daemon=True)
+                    self.heartbeat_thread.start()
+                
+                print(f"✅ Data engine restarted with {new_timeframe}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error changing timeframe: {e}")
+            return False
         
     def _load_historical_data(self):
         """Load initial historical klines data"""

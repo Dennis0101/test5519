@@ -252,6 +252,54 @@ class TradingGUI:
         )
         panic_label.pack(side='left', padx=20)
         
+        # ENHANCEMENT v1.5.0: Timeframe Selector
+        timeframe_frame = tk.Frame(self.root, bg=self.COLORS['bg_panel'], bd=1, relief='solid')
+        timeframe_frame.pack(pady=10, padx=20, fill='x')
+        
+        # Timeframe label
+        tf_label = tk.Label(
+            timeframe_frame,
+            text="⏱ TIMEFRAME:",
+            font=("Courier New", 10, "bold"),
+            fg=self.COLORS['neon_blue'],
+            bg=self.COLORS['bg_panel']
+        )
+        tf_label.pack(side='left', padx=15, pady=8)
+        
+        # Timeframe buttons
+        self.timeframe_buttons = {}
+        timeframes = ['1m', '3m', '5m', '15m', '30m', '1h', '4h']
+        current_tf = self.config['trading']['timeframe']
+        
+        for tf in timeframes:
+            # Determine if this is the current timeframe
+            is_current = (tf == current_tf)
+            
+            btn = tk.Button(
+                timeframe_frame,
+                text=tf,
+                font=("Courier New", 9, "bold"),
+                bg=self.COLORS['neon_green'] if is_current else self.COLORS['bg_dark'],
+                fg='black' if is_current else self.COLORS['text_main'],
+                activebackground=self.COLORS['neon_green'],
+                width=5,
+                height=1,
+                bd=0,
+                command=lambda t=tf: self.change_timeframe(t)
+            )
+            btn.pack(side='left', padx=3, pady=5)
+            self.timeframe_buttons[tf] = btn
+        
+        # Current timeframe display
+        self.current_tf_label = tk.Label(
+            timeframe_frame,
+            text=f"[Current: {current_tf}]",
+            font=("Courier New", 9),
+            fg=self.COLORS['neon_green'],
+            bg=self.COLORS['bg_panel']
+        )
+        self.current_tf_label.pack(side='left', padx=15)
+        
         # Log area
         log_frame = tk.Frame(self.root, bg=self.COLORS['bg_main'])
         log_frame.pack(pady=10, padx=20, fill='both', expand=True)
@@ -401,6 +449,100 @@ class TradingGUI:
         
         if self.voice_enabled:
             self.speak("시스템 종료")
+    
+    def change_timeframe(self, new_timeframe):
+        """
+        ENHANCEMENT v1.5.0: Dynamic timeframe change
+        
+        Allows user to switch timeframe during operation.
+        Safely stops, reconfigures, and optionally restarts.
+        
+        Args:
+            new_timeframe: New timeframe string (e.g., '1m', '5m', '15m', '30m', '1h', '4h')
+        """
+        current_tf = self.config['trading']['timeframe']
+        
+        # Check if already on this timeframe
+        if new_timeframe == current_tf:
+            self.log(f"⚠️ Already using {new_timeframe} timeframe")
+            return
+        
+        # Warning if system is running
+        if self.running:
+            self.log("")
+            self.log("="*80)
+            self.log(f"⚠️ TIMEFRAME CHANGE REQUEST: {current_tf} → {new_timeframe}")
+            self.log("="*80)
+            self.log("⚠️ Changing timeframe requires system restart for safety")
+            self.log("🛑 Stopping system automatically...")
+            self.log("")
+            
+            # Stop trading first (like changing car wheels - must stop first!)
+            self.stop_trading()
+            time.sleep(0.5)  # Brief pause for clean shutdown
+        
+        # Change timeframe in data engine
+        self.log(f"🔄 Changing timeframe to {new_timeframe}...")
+        
+        try:
+            # Update data engine timeframe
+            success = self.trading_brain.data_engine.change_timeframe(new_timeframe)
+            
+            if success:
+                # Update config
+                self.config['trading']['timeframe'] = new_timeframe
+                
+                # Update UI - highlight new timeframe button
+                self._update_timeframe_buttons(new_timeframe)
+                
+                # Update display label
+                self.current_tf_label.config(text=f"[Current: {new_timeframe}]")
+                
+                # Log success
+                self.log(f"✅ Timeframe changed to {new_timeframe}")
+                self.log(f"📊 Historical data reloaded for {new_timeframe}")
+                self.log("")
+                self.log("💡 Press ENGAGE to start trading with new timeframe")
+                self.log("")
+                
+                # Voice notification
+                if self.voice_enabled:
+                    timeframe_ko = self._get_timeframe_korean(new_timeframe)
+                    self.speak(f"{timeframe_ko}으로 변경되었습니다. 다시 시작하세요.")
+            else:
+                self.log(f"❌ Failed to change timeframe to {new_timeframe}")
+                
+        except Exception as e:
+            self.log(f"❌ Error changing timeframe: {e}")
+    
+    def _update_timeframe_buttons(self, new_timeframe):
+        """Update timeframe button highlights"""
+        for tf, btn in self.timeframe_buttons.items():
+            if tf == new_timeframe:
+                # Highlight current
+                btn.config(
+                    bg=self.COLORS['neon_green'],
+                    fg='black'
+                )
+            else:
+                # Normal state
+                btn.config(
+                    bg=self.COLORS['bg_dark'],
+                    fg=self.COLORS['text_main']
+                )
+    
+    def _get_timeframe_korean(self, timeframe):
+        """Convert timeframe to Korean pronunciation"""
+        korean_map = {
+            '1m': '1분봉',
+            '3m': '3분봉',
+            '5m': '5분봉',
+            '15m': '15분봉',
+            '30m': '30분봉',
+            '1h': '1시간봉',
+            '4h': '4시간봉'
+        }
+        return korean_map.get(timeframe, timeframe)
         
     def _analysis_loop(self):
         """Main analysis loop running in background thread"""
