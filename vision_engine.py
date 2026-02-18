@@ -61,7 +61,12 @@ class VisionEngine:
     
     def analyze_chart_pattern(self, screenshot, signal_data, indicators):
         """
-        Analyze chart pattern using GPT-4o-mini Vision
+        ENHANCED: Analyze chart pattern using GPT-4o-mini Vision
+        
+        Optimizations:
+        - Resize to HD (1280x720) for cost & speed
+        - Black screen detection
+        - Enhanced analysis
         
         Args:
             screenshot: PIL Image object
@@ -80,12 +85,33 @@ class VisionEngine:
             return None
         
         try:
-            # Convert image to base64
+            # OPTIMIZATION 1: Resize image for cost & speed (HD quality)
+            optimized_image = self._optimize_image_for_ai(screenshot)
+            if optimized_image is None:
+                print("⚠️ Image optimization failed")
+                return None
+            
+            # OPTIMIZATION 2: Black screen detection
+            if not self._validate_image_content(optimized_image):
+                print("❌ Invalid image detected (black screen or blank)")
+                return {
+                    'timestamp': datetime.now().isoformat(),
+                    'analysis': '❌ 화면 확인 필요: 차트 화면이 검은색이거나 비어있습니다',
+                    'error': 'black_screen_detected',
+                    'model': self.model
+                }
+            
+            # Convert optimized image to base64
             buffered = io.BytesIO()
-            screenshot.save(buffered, format="PNG")
+            optimized_image.save(buffered, format="JPEG", quality=85)  # JPEG for smaller size
             img_base64 = base64.b64encode(buffered.getvalue()).decode()
             
-            # Prepare prompt
+            original_size = len(base64.b64encode(io.BytesIO(
+                screenshot.tobytes()).getvalue()).decode()) / 1024
+            optimized_size = len(img_base64) / 1024
+            print(f"📊 Image optimized: {original_size:.1f}KB → {optimized_size:.1f}KB (saved {original_size - optimized_size:.1f}KB)")
+            
+            # OPTIMIZATION 3: Enhanced prompt with conservative persona
             prompt = self._create_analysis_prompt(signal_data, indicators)
             
             # Call GPT-4o-mini Vision API
@@ -102,14 +128,14 @@ class VisionEngine:
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:image/png;base64,{img_base64}"
+                                    "url": f"data:image/jpeg;base64,{img_base64}"
                                 }
                             }
                         ]
                     }
                 ],
                 max_tokens=800,
-                temperature=0.3,  # Lower temperature for more consistent analysis
+                temperature=0.2,  # Even lower for conservative analysis
             )
             
             analysis = response.choices[0].message.content
@@ -120,12 +146,108 @@ class VisionEngine:
                 'timestamp': datetime.now().isoformat(),
                 'analysis': analysis,
                 'prompt': prompt,
-                'model': self.model
+                'model': self.model,
+                'image_size_kb': optimized_size
             }
             
         except Exception as e:
             print(f"❌ Error analyzing chart: {e}")
             return None
+    
+    def _optimize_image_for_ai(self, image):
+        """
+        OPTIMIZATION 1: Resize image to optimal size for AI analysis
+        
+        Target: 1280x720 (HD) - Perfect balance of:
+        - Cost efficiency (smaller = cheaper)
+        - Speed (2x faster processing)
+        - Quality (AI can still see patterns clearly)
+        
+        Args:
+            image: PIL Image object
+            
+        Returns:
+            Optimized PIL Image or None
+        """
+        try:
+            # Target dimensions (HD)
+            target_width = 1280
+            target_height = 720
+            
+            # Get current dimensions
+            current_width, current_height = image.size
+            
+            # Calculate aspect ratio
+            aspect_ratio = current_width / current_height
+            target_aspect = target_width / target_height
+            
+            # Resize maintaining aspect ratio
+            if aspect_ratio > target_aspect:
+                # Image is wider - fit to width
+                new_width = target_width
+                new_height = int(target_width / aspect_ratio)
+            else:
+                # Image is taller - fit to height
+                new_height = target_height
+                new_width = int(target_height * aspect_ratio)
+            
+            # Use high-quality Lanczos resampling
+            resized = image.resize((new_width, new_height), Image.LANCZOS)
+            
+            print(f"🔧 Image resized: {current_width}x{current_height} → {new_width}x{new_height}")
+            
+            return resized
+            
+        except Exception as e:
+            print(f"❌ Error optimizing image: {e}")
+            return None
+    
+    def _validate_image_content(self, image):
+        """
+        OPTIMIZATION 2: Detect black/blank screens
+        
+        Prevents wasting API calls on:
+        - Sleep mode (black screen)
+        - Window covered/minimized
+        - Screen saver
+        - Monitor off
+        
+        Args:
+            image: PIL Image object
+            
+        Returns:
+            True if image is valid, False if black/blank
+        """
+        try:
+            # Convert to numpy array
+            img_array = np.array(image)
+            
+            # Calculate mean brightness (0-255)
+            mean_brightness = np.mean(img_array)
+            
+            # Calculate standard deviation (how varied the pixels are)
+            std_dev = np.std(img_array)
+            
+            # Thresholds
+            MIN_BRIGHTNESS = 15  # Too dark = likely black screen
+            MIN_STD_DEV = 10     # Too uniform = blank/solid color
+            
+            # Check if image is too dark
+            if mean_brightness < MIN_BRIGHTNESS:
+                print(f"⚠️ Image too dark: brightness={mean_brightness:.1f} (min {MIN_BRIGHTNESS})")
+                return False
+            
+            # Check if image is too uniform (blank)
+            if std_dev < MIN_STD_DEV:
+                print(f"⚠️ Image too uniform: std_dev={std_dev:.1f} (min {MIN_STD_DEV})")
+                return False
+            
+            print(f"✅ Image validated: brightness={mean_brightness:.1f}, variance={std_dev:.1f}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error validating image: {e}")
+            return True  # Fail-safe: allow image if validation fails
     
     def _create_analysis_prompt(self, signal_data, indicators):
         """Create detailed prompt for GPT-4o-mini"""
@@ -140,7 +262,18 @@ class VisionEngine:
         macd = indicators['macd']
         atr = indicators['atr']
         
-        prompt = f"""당신은 월가 헤지펀드의 수석 차티스트입니다. 아래 차트와 기술적 지표를 분석하여 트레이딩 판단을 내려주세요.
+        prompt = f"""[PERSONA INJECTION - 읽고 체화하세요]
+당신은 손실을 극도로 혐오하는 보수적인 헤지펀드 매니저입니다.
+- 10년 경력, 연평균 35% 수익률 유지
+- 손실 트레이드는 전체의 18%만 허용
+- "의심스러우면 하지 않는다"가 철학
+- 고객 자산 $500M 운용 중 - 실수는 직업 생명 종말
+
+[중요한 임무]
+당신의 판단 하나가 실제 돈의 손실로 이어집니다. 
+95% 확신이 서지 않으면 ❌로 판단하세요.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 **현재 알고리즘 신호:**
 - 신호 타입: {signal_type}
@@ -148,45 +281,92 @@ class VisionEngine:
 - 근거: {', '.join(reasons)}
 
 **기술적 지표 현황:**
-- RSI(14): {rsi['value']:.2f} (과매도선: {rsi['oversold']}, 과매수선: {rsi['overbought']})
-- 볼린저 밴드: 현재가 위치 {bb['position']:.1f}% (0=하단, 100=상단)
-- 이동평균: {ma['trend']} 트렌드 (Fast: {ma['fast']:.2f}, Slow: {ma['slow']:.2f})
+- RSI(14): {rsi['value']:.2f} (과매도: {rsi['oversold']}, 과매수: {rsi['overbought']})
+- 볼린저 밴드: {bb['position']:.1f}% 위치 (0=하단, 100=상단)
+- 이동평균: {ma['trend']} (Fast: {ma['fast']:.2f}, Slow: {ma['slow']:.2f})
 - MACD: {macd['trend']} (히스토그램: {macd['histogram']:.4f})
 - ATR: {atr['value']:.2f} ({atr['percentage']:.2f}%)
 
-**분석 요청사항:**
-1. 차트 패턴 분석: 추세선, 지지/저항, 헤드앤숄더, 삼각수렴 등 시각적 패턴이 보이나요?
-2. 알고리즘 신호 검증: 위 신호가 차트 패턴상으로도 타당한가요?
-3. 리스크 평가: 현재 진입시 주요 리스크는 무엇인가요?
-4. 손익비 최적화: 손절가와 목표가를 어디로 설정해야 1:2 이상의 손익비가 나올까요?
-5. 최종 판단: 진입 추천/비추천 및 그 이유
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-**⚠️ 중요: 반드시 아래 형식을 정확히 지켜서 답변하세요:**
+**[CRITICAL] 반드시 확인해야 할 사항:**
+
+1. 📊 차트 패턴 분석
+   - 추세선, 지지/저항, 헤드앤숄더, 삼각수렴
+   - 쐐기형, 플래그, 페넌트 등
+
+2. 🔍 숨겨진 다이버전스 탐지 (매우 중요!)
+   - RSI/MACD와 가격의 괴리 확인
+   - Bullish Divergence: 가격↓ but RSI↑ (매수 신호)
+   - Bearish Divergence: 가격↑ but RSI↓ (매도 경고)
+   - Hidden Divergence도 체크 (추세 지속 신호)
+
+3. ⚠️ 함정 패턴 경계
+   - 불스트랩 (Bull Trap): 가짜 돌파 후 급락
+   - 베어트랩 (Bear Trap): 가짜 붕괴 후 반등
+   - 위코프 (Wyckoff): 큰손의 물량 털기/모으기
+
+4. 🎯 진입 타이밍
+   - 지금 당장 들어가야 하는가?
+   - 아니면 조정 기다려야 하는가?
+   - 리스크 대비 보상이 충분한가?
+
+5. 🛡️ 최악의 시나리오
+   - 진입 후 즉시 -5% 하락한다면?
+   - 손절 후 계속 떨어진다면 어디까지?
+   - 이 자리가 "덫"일 가능성은?
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**⚠️ 답변 형식 (엄격히 준수):**
 
 ✅/❌ [진입 추천 여부]
-- 패턴: [관찰된 패턴]
-- 검증: [신호 타당성]
-- 리스크: [주요 리스크 요인]
+- 패턴: [관찰된 주요 패턴]
+- 다이버전스: [있음/없음 + 상세]
+- 검증: [신호가 신뢰할 만한가?]
+- 리스크: [구체적인 위험 요소]
+- 함정가능성: [Bull/Bear Trap 여부]
 - 손절가: [숫자만, 예: 91500]
 - 목표가: [숫자만, 예: 93500]
-- 종합: [30자 이내 최종 판단]
+- 종합: [20자 이내 최종 판단]
 
-**형식 예시:**
+**[예시 - 강력 매수]**
 ✅ 진입 추천
-- 패턴: 상승 삼각형 돌파
-- 검증: RSI 과매도 + 지지선 터치
-- 리스크: 91800 이탈시 추가 하락
+- 패턴: 상승 삼각형 + 볼륨 증가
+- 다이버전스: Bullish Divergence 확인 (RSI 상승중)
+- 검증: 3중 지지선 + MA골든크로스
+- 리스크: 91800 붕괴시 추가 조정
+- 함정가능성: 낮음 (거래량 뒷받침)
 - 손절가: 91500
-- 목표가: 93500
-- 종합: 확실한 매수 자리
+- 목표가: 94000
+- 종합: 확실한 롱 자리
 
-**주의사항:**
-- 손절가와 목표가는 반드시 숫자만 써주세요 (쉼표, $, K 등 기호 없이)
-- 현재가 대비 손절은 -3% 이내로 설정
-- 손익비는 최소 1:2 이상 유지
-- 불확실하면 ❌로 판단 (보수적 접근)
+**[예시 - 거부]**
+❌ 진입 불가
+- 패턴: 하락 쐐기 + 약한 반등
+- 다이버전스: Bearish Divergence 의심
+- 검증: RSI 과매도지만 저항선 강함
+- 리스크: 매물대 두꺼움, 상승 동력 부족
+- 함정가능성: 높음 (Bull Trap 위험)
+- 손절가: -
+- 목표가: -
+- 종합: 조정 더 기다려야 함
 
-간결하고 명확하게 답변해 주세요."""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**[엄수 규칙]**
+1. 손절가/목표가는 반드시 **숫자만** ($, K, 쉼표 금지)
+2. 손절폭: 현재가 대비 **-3% 이내 필수**
+3. 손익비: **최소 1:2** (위험 $100 → 보상 $200)
+4. 불확실하면 **무조건 ❌** (보수적 접근)
+5. 다이버전스는 **반드시 확인** (트레이딩 성패 좌우)
+6. 함정 패턴 의심되면 **즉시 ❌**
+
+[최종 경고]
+당신의 추천으로 누군가 돈을 잃으면, 그 책임은 당신에게 있습니다.
+95% 확신 없으면 ❌ 하세요. 기회는 다시 옵니다.
+
+간결하게 답변하되, 누락 없이."""
 
         return prompt
     
