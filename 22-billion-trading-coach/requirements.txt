@@ -1,0 +1,22 @@
+# 22-Billion: Hybrid AI Trading Coach
+# Core Trading & Data
+ccxt==4.2.25
+websocket-client==1.7.0
+numpy==1.26.3
+pandas==2.1.4
+
+# Technical Analysis
+TA-Lib==0.4.28
+
+# Vision & AI
+opencv-python==4.9.0.80
+Pillow==10.2.0
+openai==1.10.0
+
+# GUI & User Interface
+pyttsx3==2.90
+
+# Utilities
+python-dotenv==1.0.0
+requests==2.31.0
+aiohttp==3.9.1
