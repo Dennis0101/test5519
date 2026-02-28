@@ -61,6 +61,9 @@ class TradingGUI:
         self.status_ai = False
         self.last_data_time = 0
         
+        # ENHANCEMENT v1.7.0: Risk manager integration
+        self.risk_manager = None  # Will be set by main.py
+        
         # Create main window with cyberpunk style
         self.root = tk.Tk()
         self.root.title("22-Billion: Hybrid AI Trading Coach [CYBERPUNK EDITION]")
@@ -343,6 +346,29 @@ class TradingGUI:
             bg=self.COLORS['bg_panel']
         )
         self.news_summary_label.pack(side='left', padx=10)
+        
+        # ENHANCEMENT v1.7.0: Risk status panel
+        risk_frame = tk.Frame(self.root, bg=self.COLORS['bg_panel'], bd=1, relief='solid')
+        risk_frame.pack(pady=5, padx=20, fill='x')
+        
+        risk_label = tk.Label(
+            risk_frame,
+            text="🛡️ RISK:",
+            font=("Courier New", 9, "bold"),
+            fg=self.COLORS['neon_orange'],
+            bg=self.COLORS['bg_panel']
+        )
+        risk_label.pack(side='left', padx=15, pady=5)
+        
+        # Risk status display
+        self.risk_status_label = tk.Label(
+            risk_frame,
+            text="초기화중...",
+            font=("Courier New", 9),
+            fg=self.COLORS['text_main'],
+            bg=self.COLORS['bg_panel']
+        )
+        self.risk_status_label.pack(side='left', padx=10)
         
         # Log area
         log_frame = tk.Frame(self.root, bg=self.COLORS['bg_main'])
@@ -809,6 +835,11 @@ class TradingGUI:
                 
                 signal_text = f"SIGNAL: {signal_type} [{signal_strength:.0f}%]"
                 self.signal_label.config(text=signal_text, fg=signal_color)
+            
+            # ENHANCEMENT v1.7.0: Update risk status
+            if self.risk_manager:
+                risk_compact = self.risk_manager.get_compact_status()
+                self.risk_status_label.config(text=risk_compact)
                 
         except Exception as e:
             pass  # Silently fail for display updates

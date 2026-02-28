@@ -28,6 +28,8 @@ class TradingBrain:
         
         # ENHANCEMENT v1.7.0: Signal quality tracking
         self.signal_history = []  # Track signal performance
+        self.signal_validator = None  # Set by main.py
+        self.logger = None  # Set by main.py
         
     def analyze_market(self):
         """
@@ -71,13 +73,30 @@ class TradingBrain:
                 # Quick pattern detection (OpenCV)
                 quick_patterns = self.vision_engine.quick_pattern_detection(screenshot)
                 
+                # ENHANCEMENT v1.7.0: Validate with signal validator
+                if self.signal_validator:
+                    validation = self.signal_validator.validate_signal(
+                        signal, indicators, market_data, self.risk_manager
+                    )
+                    
+                    # Log validation
+                    if self.logger and not validation['approved']:
+                        self.logger.warning(
+                            "Signal rejected by validator",
+                            score=validation['validation_score'],
+                            failed=validation['filters_failed']
+                        )
+                else:
+                    validation = None
+                
                 # Make final decision
                 final_decision = self._make_final_decision(
                     signal, 
                     indicators, 
                     market_data,
                     vision_analysis,
-                    quick_patterns
+                    quick_patterns,
+                    validation  # Pass validation results
                 )
                 
                 if final_decision['approved']:
@@ -101,7 +120,7 @@ class TradingBrain:
             print(f"❌ Error in market analysis: {e}")
             return None
     
-    def _make_final_decision(self, signal, indicators, market_data, vision_analysis, quick_patterns):
+    def _make_final_decision(self, signal, indicators, market_data, vision_analysis, quick_patterns, validation=None):
         """
         Combine all inputs to make final trading decision
         
@@ -243,10 +262,31 @@ class TradingBrain:
                 risks.append(f"AI stop loss too wide ({ai_stop_distance:.2f} > {max_stop_distance:.2f}), using ATR-based")
                 print(f"⚠️ AI hallucination detected! Suggested stop: {ai_stop_distance:.2f}, Max allowed: {max_stop_distance:.2f}")
         
+        # ENHANCEMENT v1.7.0: Use validation results if available
+        if validation and not validation['approved']:
+            approved = False
+            confidence = min(confidence, validation['validation_score'])
+            risks.extend(validation['filters_failed'])
+            reasons.append(f"Validator: {validation['validation_score']}/100")
+        
         # CRITICAL: Final approval check with RAISED threshold
         if confidence < 60:
             approved = False
             risks.append(f"Confidence too low ({confidence:.1f}% < 60% threshold)")
+        
+        # ENHANCEMENT v1.7.0: Calculate position size with risk manager
+        position_size_info = None
+        if self.risk_manager and approved:
+            position_size_info = self.risk_manager.calculate_position_size(
+                current_price,
+                position_sizing['stop_loss'],
+                indicators['atr']['value']
+            )
+            
+            # Check if position approved by risk manager
+            if not position_size_info['approved']:
+                approved = False
+                risks.append(f"Risk Manager: {position_size_info['reason']}")
         
         # Compile final decision
         decision = {
@@ -259,6 +299,8 @@ class TradingBrain:
             'stop_loss': position_sizing['stop_loss'],
             'take_profit': position_sizing['take_profit'],
             'risk_reward_ratio': position_sizing['risk_reward_ratio'],
+            'position_size': position_size_info if position_size_info else None,  # v1.7.0
+            'validation': validation if validation else None,  # v1.7.0
             'reasons': reasons,
             'risks': risks,
             'indicators': {
@@ -273,6 +315,25 @@ class TradingBrain:
             'ai_recommendation': ai_recommendation,
             'quick_patterns': quick_patterns,
         }
+        
+        # Log to structured logger
+        if self.logger:
+            if approved:
+                self.logger.info(
+                    "Signal APPROVED",
+                    signal_type=signal_type,
+                    confidence=confidence,
+                    entry=current_price,
+                    stop=position_sizing['stop_loss'],
+                    target=position_sizing['take_profit']
+                )
+            else:
+                self.logger.warning(
+                    "Signal REJECTED",
+                    signal_type=signal_type,
+                    confidence=confidence,
+                    risks=risks
+                )
         
         return decision
     
@@ -350,6 +411,15 @@ class TradingBrain:
         if not decision['approved']:
             return f"❌ Signal rejected - {', '.join(decision['risks'])}"
         
+        # ENHANCEMENT v1.7.0: Include position sizing
+        pos_info = decision.get('position_size')
+        pos_text = ""
+        if pos_info and pos_info.get('approved'):
+            pos_text = f"""
+포지션: {pos_info['position_size']:.4f} BTC (${pos_info['position_size_usd']:,.0f})
+리스크: ${pos_info['risk_amount']:.0f} ({pos_info['stop_distance_pct']:.1f}%)
+레버리지: {pos_info['leverage']:.1f}x"""
+        
         summary = f"""
 {'='*60}
 🎯 22-BILLION TRADING SIGNAL
@@ -361,7 +431,7 @@ class TradingBrain:
 진입가: ${decision['entry_price']:,.2f}
 손절가: ${decision['stop_loss']:,.2f}
 목표가: ${decision['take_profit']:,.2f}
-손익비: 1:{decision['risk_reward_ratio']:.1f}
+손익비: 1:{decision['risk_reward_ratio']:.1f}{pos_text}
 
 📊 기술적 지표:
 - RSI: {decision['indicators']['rsi']:.2f}

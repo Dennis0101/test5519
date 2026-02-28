@@ -21,6 +21,9 @@ from trading_brain import TradingBrain
 from gui import TradingGUI
 from news_analyzer import NewsAnalyzer
 from market_analyzer import MarketAnalyzer
+from risk_manager import RiskManager
+from signal_validator import SignalValidator
+from logger_config import get_logger
 
 
 def load_config():
@@ -181,13 +184,31 @@ def main():
         print("  🌍 Initializing Market Analyzer...")
         market_analyzer = MarketAnalyzer(config)
         
+        # Initialize Risk Manager (CRITICAL v1.7.0)
+        print("  🛡️  Initializing Risk Manager...")
+        risk_manager = RiskManager(config)
+        risk_status = risk_manager.get_risk_status()
+        print(f"      Account: ${risk_status['account_balance']:,.0f} | Max Risk/Trade: {config.get('risk', {}).get('max_risk_per_trade', 1.0)}%")
+        
+        # Initialize Signal Validator (CRITICAL v1.7.0)
+        print("  ✅ Initializing Signal Validator...")
+        signal_validator = SignalValidator(config)
+        
+        # Initialize Structured Logger (v1.7.0)
+        print("  📝 Initializing Structured Logger...")
+        logger = get_logger()
+        logger.info("22-Billion system starting", version="v1.7.0")
+        
         # Initialize Trading Brain
         print("  🧠 Initializing Trading Brain...")
-        trading_brain = TradingBrain(config, data_engine, technical_indicators, vision_engine)
+        trading_brain = TradingBrain(config, data_engine, technical_indicators, vision_engine, risk_manager)
+        trading_brain.signal_validator = signal_validator  # Add validator
+        trading_brain.logger = logger  # Add logger
         
         # Initialize GUI
         print("  🖥️  Initializing GUI...")
         gui = TradingGUI(config, trading_brain, news_analyzer, market_analyzer)
+        gui.risk_manager = risk_manager  # Add risk manager to GUI
         
         print("")
         print("✅ All components initialized successfully")
