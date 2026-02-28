@@ -72,13 +72,18 @@ class NewsAnalyzer:
             return self.news_cache  # Return cached on error
     
     def _get_cryptocompare_news(self, symbol, limit=3):
-        """Get news from CryptoCompare (free API)"""
+        """
+        Get news from CryptoCompare (free API)
+        FIXED: Added timeout and better error handling
+        """
         try:
             url = "https://min-api.cryptocompare.com/data/v2/news/?lang=EN"
             
-            response = requests.get(url, timeout=10)
+            # FIXED: Use robust API client with retry
+            api_client = get_api_client()
+            response = api_client.get(url)
             
-            if response.status_code == 200:
+            if response and response.status_code == 200:
                 data = response.json()
                 
                 if data.get('Type') == 100 and 'Data' in data:
@@ -108,13 +113,18 @@ class NewsAnalyzer:
             return []
     
     def _get_coingecko_trending(self):
-        """Get trending coins from CoinGecko (free API)"""
+        """
+        Get trending coins from CoinGecko (free API)
+        FIXED: Added retries and better timeout
+        """
         try:
             url = "https://api.coingecko.com/api/v3/search/trending"
             
-            response = requests.get(url, timeout=10)
+            # FIXED: Use robust API client
+            api_client = get_api_client()
+            response = api_client.get(url)
             
-            if response.status_code == 200:
+            if response and response.status_code == 200:
                 data = response.json()
                 
                 if 'coins' in data:

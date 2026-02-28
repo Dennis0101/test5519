@@ -210,7 +210,11 @@ class DataEngine:
             f"{symbol}@kline_{self.timeframe}"  # Klines
         ]
         
-        ws_url = f"wss://fstream.binance.com/stream?streams={'/'.join(streams)}"
+        # FIXED: Dynamic URL based on testnet config
+        if self.config['binance']['testnet']:
+            ws_url = f"wss://stream.binancefuture.com/stream?streams={'/'.join(streams)}"
+        else:
+            ws_url = f"wss://fstream.binance.com/stream?streams={'/'.join(streams)}"
         
         # ZOMBIE MODE: Infinite reconnection loop
         while self.running:
@@ -461,51 +465,62 @@ class DataEngine:
     
     def get_orderbook_imbalance(self):
         """
-        ENHANCEMENT 2: Thread-safe orderbook imbalance calculation
+        Thread-safe orderbook imbalance (public method)
         """
-        try:
-            with self.data_lock:
-                if not self.orderbook['bids'] or not self.orderbook['asks']:
-                    return 0
-                
-                # Sum top 10 levels
-                bid_volume = sum([bid[1] for bid in self.orderbook['bids'][:10]])
-                ask_volume = sum([ask[1] for ask in self.orderbook['asks'][:10]])
-                
-                if ask_volume == 0:
-                    return 1.0
-                
-                # Positive means more buying pressure
-                imbalance = (bid_volume - ask_volume) / (bid_volume + ask_volume)
-                return imbalance
-            
-        except Exception as e:
-            print(f"❌ Error calculating orderbook imbalance: {e}")
-            return 0
+        with self.data_lock:
+            return self._get_orderbook_imbalance_unsafe()
     
     def get_volume_ratio(self):
         """
-        ENHANCEMENT 2: Thread-safe volume ratio
+        Thread-safe volume ratio (public method)
         """
         with self.data_lock:
-            total = self.buy_volume + self.sell_volume
-            if total == 0:
-                return 1.0
-            return self.buy_volume / total
+            return self._get_volume_ratio_unsafe()
     
     def get_market_data(self):
         """
         ENHANCEMENT 2: Thread-safe market data snapshot
+        CRITICAL FIX v1.7.0: Full atomic snapshot
         """
         with self.data_lock:
+            # Create complete atomic snapshot
             return {
                 'price': self.current_price,
-                'orderbook_imbalance': self.get_orderbook_imbalance(),
-                'volume_ratio': self.get_volume_ratio(),
+                'orderbook_imbalance': self._get_orderbook_imbalance_unsafe(),  # Called within lock
+                'volume_ratio': self._get_volume_ratio_unsafe(),  # Called within lock
                 'bid_ask_spread': self._get_spread(),
                 'num_candles': len(self.klines) + (1 if self.current_candle else 0),
-                'has_live_candle': self.current_candle is not None
+                'has_live_candle': self.current_candle is not None,
+                'timestamp': time.time()
             }
+    
+    def _get_orderbook_imbalance_unsafe(self):
+        """
+        INTERNAL: Calculate imbalance (must be called within lock!)
+        """
+        try:
+            if not self.orderbook['bids'] or not self.orderbook['asks']:
+                return 0
+            
+            bid_volume = sum([bid[1] for bid in self.orderbook['bids'][:10]])
+            ask_volume = sum([ask[1] for ask in self.orderbook['asks'][:10]])
+            
+            if ask_volume == 0:
+                return 1.0
+            
+            imbalance = (bid_volume - ask_volume) / (bid_volume + ask_volume)
+            return imbalance
+        except:
+            return 0
+    
+    def _get_volume_ratio_unsafe(self):
+        """
+        INTERNAL: Get volume ratio (must be called within lock!)
+        """
+        total = self.buy_volume + self.sell_volume
+        if total == 0:
+            return 1.0
+        return self.buy_volume / total
     
     def _get_spread(self):
         """

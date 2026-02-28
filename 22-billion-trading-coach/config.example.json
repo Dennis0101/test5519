@@ -41,5 +41,13 @@
     "market_analysis_enabled": true,
     "news_update_interval": 300,
     "market_update_interval": 600
+  },
+  "risk": {
+    "account_balance": 10000,
+    "max_risk_per_trade": 1.0,
+    "max_daily_loss": 5.0,
+    "max_consecutive_losses": 3,
+    "position_sizing_enabled": true,
+    "volatility_adjustment": true
   }
 }

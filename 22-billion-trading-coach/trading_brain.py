@@ -10,11 +10,12 @@ from datetime import datetime
 class TradingBrain:
     """The brain that makes final trading decisions"""
     
-    def __init__(self, config, data_engine, technical_indicators, vision_engine):
+    def __init__(self, config, data_engine, technical_indicators, vision_engine, risk_manager=None):
         self.config = config
         self.data_engine = data_engine
         self.technical_indicators = technical_indicators
         self.vision_engine = vision_engine
+        self.risk_manager = risk_manager  # CRITICAL: Risk management integration
         
         self.risk_reward_ratio = config['trading']['risk_reward_ratio']
         
@@ -24,6 +25,9 @@ class TradingBrain:
         
         self.pending_signals = []
         self.confirmed_signals = []
+        
+        # ENHANCEMENT v1.7.0: Signal quality tracking
+        self.signal_history = []  # Track signal performance
         
     def analyze_market(self):
         """

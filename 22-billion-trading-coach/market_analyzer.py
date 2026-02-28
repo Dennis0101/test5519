@@ -9,9 +9,9 @@ FEATURES:
 - Global market sentiment
 """
 
-import requests
 import time
 from datetime import datetime
+from api_client import get_api_client
 
 
 class MarketAnalyzer:
@@ -79,9 +79,11 @@ class MarketAnalyzer:
         """
         try:
             url = "https://api.alternative.me/fng/"
-            response = requests.get(url, timeout=10)
+            # FIXED: Use robust API client
+            api_client = get_api_client()
+            response = api_client.get(url)
             
-            if response.status_code == 200:
+            if response and response.status_code == 200:
                 data = response.json()
                 
                 if 'data' in data and len(data['data']) > 0:
@@ -108,9 +110,11 @@ class MarketAnalyzer:
         """
         try:
             url = "https://api.coingecko.com/api/v3/global"
-            response = requests.get(url, timeout=10)
+            # FIXED: Use robust API client
+            api_client = get_api_client()
+            response = api_client.get(url)
             
-            if response.status_code == 200:
+            if response and response.status_code == 200:
                 data = response.json()
                 
                 if 'data' in data:
@@ -127,9 +131,11 @@ class MarketAnalyzer:
         """Get global crypto market data"""
         try:
             url = "https://api.coingecko.com/api/v3/global"
-            response = requests.get(url, timeout=10)
+            # FIXED: Use robust API client
+            api_client = get_api_client()
+            response = api_client.get(url)
             
-            if response.status_code == 200:
+            if response and response.status_code == 200:
                 data = response.json()
                 
                 if 'data' in data:

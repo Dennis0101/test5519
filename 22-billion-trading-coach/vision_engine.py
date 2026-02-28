@@ -5,12 +5,20 @@ Captures chart screenshots and analyzes visual patterns using GPT-4o-mini
 
 import cv2
 import numpy as np
-from PIL import ImageGrab, Image
 import base64
 import io
 import time
 from datetime import datetime
 from openai import OpenAI
+
+# PIL ImageGrab with fallback for headless servers
+try:
+    from PIL import ImageGrab, Image
+    PIL_AVAILABLE = True
+except ImportError:
+    from PIL import Image
+    PIL_AVAILABLE = False
+    print("⚠️ PIL ImageGrab not available (headless server). Screenshot capture disabled.")
 
 
 class VisionEngine:
@@ -36,8 +44,14 @@ class VisionEngine:
         Capture chart from screen
         If screen_region is None, captures entire screen
         screen_region format: (x, y, width, height)
+        
+        FIXED: Handles headless servers gracefully
         """
         if not self.enabled:
+            return None
+        
+        if not PIL_AVAILABLE:
+            print("⚠️ Screenshot capture not available (headless environment)")
             return None
         
         try:
